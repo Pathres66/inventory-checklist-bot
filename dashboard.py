@@ -49,11 +49,15 @@ class DashboardView(discord.ui.View):
         items = await database.get_user_items(self.event_id, interaction.user.id)
 
         if not items:
-            await interaction.response.send_message("Nemáš priradené žiadne itemy.", ephemeral=True, delete_after=5)
+            await interaction.response.send_message(
+                "Nemáš priradené žiadne itemy.",
+                ephemeral=True,
+                delete_after=5
+            )
             return
 
         lines = [
-            f"{STATUS_LABELS.get(item['status'], '❔')} `{item['id']}` — {item['item_name']}"
+            f"{STATUS_LABELS.get(item['status'], '❔')} {item['item_name']}"
             for item in items
         ]
 
@@ -63,12 +67,20 @@ class DashboardView(discord.ui.View):
             color=discord.Color.green()
         )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True, delete_after=30)
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+            delete_after=30
+        )
 
     @discord.ui.button(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary)
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await refresh_dashboard(self.bot, self.event_id)
-        await interaction.response.send_message("🔄 Dashboard obnovený.", ephemeral=True, delete_after=3)
+        await interaction.response.send_message(
+            "🔄 Dashboard obnovený.",
+            ephemeral=True,
+            delete_after=3
+        )
 
 
 def build_dashboard_embed(event, items):
@@ -98,9 +110,13 @@ def build_dashboard_embed(event, items):
 
         for item in person_items:
             icon = STATUS_LABELS.get(item["status"], "❔")
-            lines.append(f"{icon} `{item['id']}` — {item['item_name']}")
+            lines.append(f"{icon} {item['item_name']}")
 
-        embed.add_field(name=f"👤 {person}", value="\n".join(lines), inline=False)
+        embed.add_field(
+            name=f"👤 {person}",
+            value="\n".join(lines),
+            inline=False
+        )
 
     embed.add_field(
         name="📊 Súhrn",
@@ -112,7 +128,7 @@ def build_dashboard_embed(event, items):
         inline=False
     )
 
-    embed.set_footer(text="Tabuľka sa aktualizuje automaticky. Ovládanie je cez tlačidlá nižšie.")
+    embed.set_footer(text="Tabuľka sa aktualizuje automaticky a po debate sa presunie naspodok.")
     return embed
 
 
@@ -157,8 +173,48 @@ async def recreate_dashboard(bot: discord.Client, event):
     items = await database.get_items(event["id"])
     embed = build_dashboard_embed(event, items)
 
-    message = await channel.send(embed=embed, view=DashboardView(bot, event["id"]))
+    message = await channel.send(
+        embed=embed,
+        view=DashboardView(bot, event["id"])
+    )
+
     await database.set_dashboard_message(event["id"], channel.id, message.id)
+
+
+async def bump_dashboard_to_bottom(bot: discord.Client, event_id: int):
+    pool = database.get_pool()
+
+    async with pool.acquire() as conn:
+        event = await conn.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
+
+    if not event or not event["channel_id"] or not event["dashboard_message_id"]:
+        return
+
+    channel = bot.get_channel(event["channel_id"])
+
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(event["channel_id"])
+        except discord.NotFound:
+            return
+
+    try:
+        old_message = await channel.fetch_message(event["dashboard_message_id"])
+        await old_message.delete()
+    except discord.NotFound:
+        pass
+    except discord.Forbidden:
+        return
+
+    items = await database.get_items(event_id)
+    embed = build_dashboard_embed(event, items)
+
+    new_message = await channel.send(
+        embed=embed,
+        view=DashboardView(bot, event_id)
+    )
+
+    await database.set_dashboard_message(event_id, channel.id, new_message.id)
 
 
 async def create_or_update_dashboard(interaction: discord.Interaction, event):
