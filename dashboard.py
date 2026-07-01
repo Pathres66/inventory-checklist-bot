@@ -198,9 +198,16 @@ async def bump_dashboard_to_bottom(bot: discord.Client, event_id: int):
         except discord.NotFound:
             return
 
+    old_message_id = event["dashboard_message_id"]
+
     try:
-        old_message = await channel.fetch_message(event["dashboard_message_id"])
+        old_message = await channel.fetch_message(old_message_id)
+
+        if hasattr(bot, "intentional_dashboard_deletes"):
+            bot.intentional_dashboard_deletes.add(old_message_id)
+
         await old_message.delete()
+
     except discord.NotFound:
         pass
     except discord.Forbidden:

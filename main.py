@@ -21,6 +21,7 @@ class LarpChecklistBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
         self.dashboard_bump_tasks: dict[int, asyncio.Task] = {}
+        self.intentional_dashboard_deletes: set[int] = set()
 
     async def setup_hook(self):
         await init_db()
@@ -33,6 +34,10 @@ class LarpChecklistBot(commands.Bot):
 
     async def on_message_delete(self, message: discord.Message):
         if message.guild is None:
+            return
+
+        if message.id in self.intentional_dashboard_deletes:
+            self.intentional_dashboard_deletes.discard(message.id)
             return
 
         event = await get_event_by_dashboard_message(message.id)
@@ -55,9 +60,6 @@ class LarpChecklistBot(commands.Bot):
             return
 
         if not event["channel_id"] or message.channel.id != event["channel_id"]:
-            return
-
-        if event["dashboard_message_id"] and message.id == event["dashboard_message_id"]:
             return
 
         event_id = event["id"]
